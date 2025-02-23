@@ -214,6 +214,7 @@
             if (sender === 'user') {
                 // User messages appear instantly
                 messageDiv.innerHTML = marked.parse(text);
+                chatContainer.appendChild(messageDiv);
             } else {
                 // Model messages type out
                 messageDiv.innerHTML = ''; // Start empty
@@ -221,11 +222,11 @@
                 await typeMessage(text, messageDiv);
             }
 
-            chatContainer.appendChild(messageDiv);
             chatContainer.scrollTop = chatContainer.scrollHeight;
         }
 
         async function typeMessage(text, element) {
+            // First convert markdown to HTML but don't display yet
             const parsedHtml = marked.parse(text);
             const tempDiv = document.createElement('div');
             tempDiv.innerHTML = parsedHtml;
@@ -233,39 +234,56 @@
             // Start completely empty
             element.innerHTML = '';
 
-            // Create the structure with empty elements
-            const contentStructure = tempDiv.cloneNode(true);
-            const allElements = contentStructure.getElementsByTagName('*');
-            for (let el of allElements) {
-                if (el.children.length === 0) {
-                    el.textContent = '';
-                }
-            }
-            element.innerHTML = contentStructure.innerHTML;
-
-            // Now type out the text
-            const originalElements = tempDiv.getElementsByTagName('*');
-            const targetElements = element.getElementsByTagName('*');
-
-            // Handle root-level text first (if any)
-            if (tempDiv.childNodes[0]?.nodeType === Node.TEXT_NODE) {
-                const text = tempDiv.childNodes[0].textContent;
-                const textNode = document.createTextNode('');
-                element.insertBefore(textNode, element.firstChild);
-                for (let char of text) {
-                    textNode.textContent += char;
+            // Function to type text in a specific element
+            async function typeTextInElement(el) {
+                const text = el.textContent;
+                el.textContent = '';
+                for (const char of text) {
+                    el.textContent += char;
                     await new Promise(resolve => setTimeout(resolve, 20));
                 }
             }
 
-            // Then handle elements
-            for (let i = 0; i < originalElements.length; i++) {
-                if (originalElements[i].children.length === 0) {
-                    const originalText = originalElements[i].textContent;
-                    targetElements[i].textContent = '';
-                    for (let char of originalText) {
-                        targetElements[i].textContent += char;
-                        await new Promise(resolve => setTimeout(resolve, 20));
+            // Process each node in the parsed content
+            for (const child of tempDiv.childNodes) {
+                if (child.nodeType === Node.TEXT_NODE) {
+                    // Handle plain text
+                    const span = document.createElement('span');
+                    element.appendChild(span);
+                    span.textContent = child.textContent;
+                    await typeTextInElement(span);
+                } else {
+                    // Handle elements (like code blocks, paragraphs, etc.)
+                    const newElement = child.cloneNode(true);
+                    element.appendChild(newElement);
+
+                    if (newElement.tagName === 'PRE') {
+                        // For code blocks, type out the content
+                        const code = newElement.querySelector('code');
+                        if (code) {
+                            await typeTextInElement(code);
+                        }
+                    } else {
+                        // For other elements, type out their text content
+                        const textNodes = [];
+                        const walk = document.createTreeWalker(
+                            newElement,
+                            NodeFilter.SHOW_TEXT,
+                            null,
+                            false
+                        );
+                        let node;
+                        while (node = walk.nextNode()) {
+                            textNodes.push(node);
+                        }
+
+                        for (const textNode of textNodes) {
+                            const span = document.createElement('span');
+                            textNode.parentNode.insertBefore(span, textNode);
+                            textNode.parentNode.removeChild(textNode);
+                            span.textContent = textNode.textContent;
+                            await typeTextInElement(span);
+                        }
                     }
                 }
             }
