@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Chat Interface</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.0.2/marked.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+
+        #chat-container {
+            height: 70vh;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            background: white;
+            margin-bottom: 20px;
+        }
+
+        .message {
+            margin-bottom: 20px;
+            padding: 10px;
+            border-radius: 8px;
+        }
+
+        .user-message {
+            background: #e3f2fd;
+            margin-left: 20%;
+            margin-right: 5px;
+        }
+
+        .model-message {
+            background: #f5f5f5;
+            margin-right: 20%;
+            margin-left: 5px;
+        }
+
+        #input-container {
+            display: flex;
+            gap: 10px;
+        }
+
+        #prompt-input {
+            flex-grow: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+
+        button {
+            padding: 10px 20px;
+            background: #2196f3;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        button:hover {
+            background: #1976d2;
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .loading {
+            display: none;
+            margin: 10px 0;
+            color: #666;
+        }
+
+        pre {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+
+        code {
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        @keyframes dots {
+
+            0%,
+            20% {
+                content: "";
+            }
+
+            40% {
+                content: ".";
+            }
+
+            60% {
+                content: "..";
+            }
+
+            80% {
+                content: "...";
+            }
+
+            100% {
+                content: "";
+            }
+        }
+
+        .waiting-dots::after {
+            content: "";
+            animation: dots 1.5s infinite;
+        }
+
+        .waiting-message {
+            color: #666;
+            font-style: italic;
+            padding: 10px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>LLM Chat Interface</h1>
+    <div id="chat-container"></div>
+    <div class="loading" id="loading">Generating response...</div>
+    <div id="input-container">
+        <textarea id="prompt-input" placeholder="Enter your prompt here..." rows="3"></textarea>
+        <button onclick="sendMessage()" id="send-button">Send</button>
+    </div>
+
+    <script>
+        const chatContainer = document.getElementById('chat-container');
+        const promptInput = document.getElementById('prompt-input');
+        const sendButton = document.getElementById('send-button');
+        const loadingIndicator = document.getElementById('loading');
+
+        // Handle Enter key (with Shift+Enter for new lines)
+        promptInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        async function sendMessage() {
+            const prompt = promptInput.value.trim();
+            if (!prompt) return;
+
+            // Disable input and show loading
+            promptInput.disabled = true;
+            sendButton.disabled = true;
+            loadingIndicator.style.display = 'block';
+
+            // Add user message to chat
+            await addMessage(prompt, 'user');
+            promptInput.value = '';
+
+            // Add waiting indicator
+            const waitingDiv = document.createElement('div');
+            waitingDiv.className = 'message model-message waiting-message';
+            waitingDiv.innerHTML = 'Thinking<span class="waiting-dots"></span>';
+            chatContainer.appendChild(waitingDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+
+            try {
+                const response = await fetch('http://localhost:8000/generate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ prompt: prompt }),
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                // Remove waiting indicator
+                chatContainer.removeChild(waitingDiv);
+
+                const data = await response.json();
+                await addMessage(data.generated_text, 'model');
+            } catch (error) {
+                // Remove waiting indicator
+                chatContainer.removeChild(waitingDiv);
+
+                console.error('Error:', error);
+                await addMessage('Error: Failed to get response from the model. Check the browser console for details.', 'model');
+                await addMessage(`Specific error: ${error.toString()}`, 'model');
+            }
+
+            // Re-enable input and hide loading
+            promptInput.disabled = false;
+            sendButton.disabled = false;
+            loadingIndicator.style.display = 'none';
+            promptInput.focus();
+        }
+
+        async function addMessage(text, sender) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${sender}-message`;
+
+            if (sender === 'user') {
+                // User messages appear instantly
+                messageDiv.innerHTML = marked.parse(text);
+            } else {
+                // Model messages type out
+                messageDiv.innerHTML = ''; // Start empty
+                chatContainer.appendChild(messageDiv);
+                await typeMessage(text, messageDiv);
+            }
+
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        async function typeMessage(text, element) {
+            const parsedHtml = marked.parse(text);
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = parsedHtml;
+
+            // Start completely empty
+            element.innerHTML = '';
+
+            // Create the structure with empty elements
+            const contentStructure = tempDiv.cloneNode(true);
+            const allElements = contentStructure.getElementsByTagName('*');
+            for (let el of allElements) {
+                if (el.children.length === 0) {
+                    el.textContent = '';
+                }
+            }
+            element.innerHTML = contentStructure.innerHTML;
+
+            // Now type out the text
+            const originalElements = tempDiv.getElementsByTagName('*');
+            const targetElements = element.getElementsByTagName('*');
+
+            // Handle root-level text first (if any)
+            if (tempDiv.childNodes[0]?.nodeType === Node.TEXT_NODE) {
+                const text = tempDiv.childNodes[0].textContent;
+                const textNode = document.createTextNode('');
+                element.insertBefore(textNode, element.firstChild);
+                for (let char of text) {
+                    textNode.textContent += char;
+                    await new Promise(resolve => setTimeout(resolve, 20));
+                }
+            }
+
+            // Then handle elements
+            for (let i = 0; i < originalElements.length; i++) {
+                if (originalElements[i].children.length === 0) {
+                    const originalText = originalElements[i].textContent;
+                    targetElements[i].textContent = '';
+                    for (let char of originalText) {
+                        targetElements[i].textContent += char;
+                        await new Promise(resolve => setTimeout(resolve, 20));
+                    }
+                }
+            }
+        }
+    </script>
+</body>
+
+</html>
