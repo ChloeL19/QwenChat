@@ -226,67 +226,36 @@
         }
 
         async function typeMessage(text, element) {
-            // First convert markdown to HTML but don't display yet
+            // Convert markdown to HTML
             const parsedHtml = marked.parse(text);
-            const tempDiv = document.createElement('div');
-            tempDiv.innerHTML = parsedHtml;
 
-            // Start completely empty
+            // Create a temporary container
+            const temp = document.createElement('div');
+            temp.style.display = 'none';
+            temp.innerHTML = parsedHtml;
+            document.body.appendChild(temp);
+
+            // Clear the target element
             element.innerHTML = '';
 
-            // Function to type text in a specific element
-            async function typeTextInElement(el) {
-                const text = el.textContent;
-                el.textContent = '';
-                for (const char of text) {
-                    el.textContent += char;
+            // Type out each element
+            for (const child of temp.children) {
+                const newElement = child.cloneNode(true);
+                newElement.textContent = '';  // Clear the text content
+                element.appendChild(newElement);
+
+                // Get the original text
+                const originalText = child.textContent;
+
+                // Type it out
+                for (const char of originalText) {
+                    newElement.textContent += char;
                     await new Promise(resolve => setTimeout(resolve, 20));
                 }
             }
 
-            // Process each node in the parsed content
-            for (const child of tempDiv.childNodes) {
-                if (child.nodeType === Node.TEXT_NODE) {
-                    // Handle plain text
-                    const span = document.createElement('span');
-                    element.appendChild(span);
-                    span.textContent = child.textContent;
-                    await typeTextInElement(span);
-                } else {
-                    // Handle elements (like code blocks, paragraphs, etc.)
-                    const newElement = child.cloneNode(true);
-                    element.appendChild(newElement);
-
-                    if (newElement.tagName === 'PRE') {
-                        // For code blocks, type out the content
-                        const code = newElement.querySelector('code');
-                        if (code) {
-                            await typeTextInElement(code);
-                        }
-                    } else {
-                        // For other elements, type out their text content
-                        const textNodes = [];
-                        const walk = document.createTreeWalker(
-                            newElement,
-                            NodeFilter.SHOW_TEXT,
-                            null,
-                            false
-                        );
-                        let node;
-                        while (node = walk.nextNode()) {
-                            textNodes.push(node);
-                        }
-
-                        for (const textNode of textNodes) {
-                            const span = document.createElement('span');
-                            textNode.parentNode.insertBefore(span, textNode);
-                            textNode.parentNode.removeChild(textNode);
-                            span.textContent = textNode.textContent;
-                            await typeTextInElement(span);
-                        }
-                    }
-                }
-            }
+            // Clean up
+            document.body.removeChild(temp);
         }
     </script>
 </body>
